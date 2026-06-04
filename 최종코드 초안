@@ -1,0 +1,411 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+from io import StringIO
+
+# 한글 설정
+plt.rcParams["font.family"] = "Malgun Gothic"
+plt.rcParams["axes.unicode_minus"] = False
+
+
+# =========================
+# 도서관 CSV 읽기
+# =========================
+def load_library_csv(file):
+
+    encodings = ["utf-8", "cp949", "euc-kr"]
+
+    for encoding in encodings:
+
+        try:
+            file.seek(0)
+
+            raw_text = file.read().decode(encoding)
+
+            df = pd.read_csv(
+                StringIO(raw_text),
+                skiprows=2
+            )
+
+            return raw_text, df
+
+        except:
+            continue
+
+    return None, None
+
+
+# =========================
+# 인구구조 CSV 읽기
+# =========================
+def load_population_csv(file):
+
+    encodings = ["utf-8", "cp949", "euc-kr"]
+
+    for encoding in encodings:
+
+        try:
+            file.seek(0)
+
+            raw_text = file.read().decode(encoding)
+
+            df = pd.read_csv(
+                StringIO(raw_text)
+            )
+
+            return raw_text, df
+
+        except:
+            continue
+
+    return None, None
+
+
+# =========================
+# 도서관 전처리
+# =========================
+def preprocess_library(df):
+
+    df.columns = [
+        "도서관",
+        "지역",
+        "인쇄_어린이",
+        "인쇄_청소년",
+        "인쇄_성인",
+        "인쇄_합계",
+        "전자_어린이",
+        "전자_청소년",
+        "전자_성인",
+        "전자_합계"
+    ]
+
+    numeric_cols = [
+        "인쇄_어린이",
+        "인쇄_청소년",
+        "인쇄_성인",
+        "인쇄_합계",
+        "전자_어린이",
+        "전자_청소년",
+        "전자_성인",
+        "전자_합계"
+    ]
+
+    for col in numeric_cols:
+
+        df[col] = (
+            df[col]
+            .astype(str)
+            .str.replace(",", "", regex=False)
+        )
+
+        df[col] = pd.to_numeric(
+            df[col],
+            errors="coerce"
+        )
+
+    df = df.dropna()
+
+    return df
+
+
+# =========================
+# 인구구조 전처리
+# =========================
+def preprocess_population(df):
+
+    df = df.iloc[:, 1:4]
+
+    df.columns = [
+        "지역",
+        "구분",
+        "비율"
+    ]
+
+    df["비율"] = pd.to_numeric(
+        df["비율"],
+        errors="coerce"
+    )
+
+    result = []
+
+    for region in df["지역"].unique():
+
+        temp = df[df["지역"] == region]
+
+        values = temp["비율"].tolist()
+
+        if len(values) >= 3:
+
+            result.append([
+                region,
+                values[0],
+                values[1],
+                values[2]
+            ])
+
+    pop_df = pd.DataFrame(
+        result,
+        columns=[
+            "지역",
+            "유소년",
+            "생산연령",
+            "노년"
+        ]
+    )
+
+    pop_df["지역"] = pop_df["지역"].replace({
+        "서울특별시": "서울",
+        "부산광역시": "부산",
+        "경기도": "경기",
+        "세종특별자치시": "세종",
+        "강원특별자치도": "강원",
+        "전라남도": "전남"
+    })
+
+    return pop_df
+
+
+# =========================
+# 도서관 그래프
+# =========================
+def library_graph(df):
+
+    st.subheader("연령별 이용 현황")
+
+    print_data = [
+        df["인쇄_어린이"].sum(),
+        df["인쇄_청소년"].sum(),
+        df["인쇄_성인"].sum()
+    ]
+
+    elec_data = [
+        df["전자_어린이"].sum(),
+        df["전자_청소년"].sum(),
+        df["전자_성인"].sum()
+    ]
+
+    labels = ["어린이", "청소년", "성인"]
+
+    fig, ax = plt.subplots(figsize=(8,5))
+
+    x = range(len(labels))
+
+    ax.bar(
+        [i-0.2 for i in x],
+        print_data,
+        width=0.4,
+        label="인쇄자료"
+    )
+
+    ax.bar(
+        [i+0.2 for i in x],
+        elec_data,
+        width=0.4,
+        label="전자자료"
+    )
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels)
+
+    ax.legend()
+
+    st.pyplot(fig)
+
+
+# =========================
+# 인구구조 그래프
+# =========================
+def population_graph(df):
+
+    st.subheader("지역별 인구구조")
+
+    fig, ax = plt.subplots(figsize=(10,6))
+
+    df.set_index("지역")[[
+        "유소년",
+        "생산연령",
+        "노년"
+    ]].plot(
+        kind="bar",
+        stacked=True,
+        ax=ax
+    )
+
+    st.pyplot(fig)
+
+
+# =========================
+# 통합 분석
+# =========================
+def merged_graph(df):
+
+    st.subheader("지역별 도서관 이용량")
+
+    fig, ax = plt.subplots(figsize=(10,6))
+
+    ax.bar(
+        df["지역"],
+        df["인쇄_합계"]
+    )
+
+    ax.set_title("지역별 인쇄자료 이용량")
+
+    plt.xticks(rotation=45)
+
+    st.pyplot(fig)
+
+
+# =========================
+# 상관관계 분석
+# =========================
+def correlation_graph(df):
+
+    st.subheader("유소년 비율과 어린이 이용량")
+
+    fig, ax = plt.subplots(figsize=(8,6))
+
+    ax.scatter(
+        df["유소년"],
+        df["인쇄_어린이"]
+    )
+
+    for i in range(len(df)):
+
+        ax.text(
+            df["유소년"].iloc[i],
+            df["인쇄_어린이"].iloc[i],
+            df["지역"].iloc[i]
+        )
+
+    ax.set_xlabel("유소년 비율")
+    ax.set_ylabel("어린이 이용량")
+
+    st.pyplot(fig)
+
+
+# =========================
+# 메인
+# =========================
+def main():
+
+    st.title("지역별 공공도서관 이용현황 분석")
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "도서관 분석",
+        "인구구조 분석",
+        "통합 분석",
+        "상관관계 분석"
+    ])
+
+    with st.sidebar:
+
+        st.header("도서관 데이터")
+
+        seoul = st.file_uploader("서울", type="csv")
+        busan = st.file_uploader("부산", type="csv")
+        gyeonggi = st.file_uploader("경기", type="csv")
+        sejong = st.file_uploader("세종", type="csv")
+        gangwon = st.file_uploader("강원", type="csv")
+        jeonnam = st.file_uploader("전남", type="csv")
+
+        st.header("인구구조 데이터")
+
+        population = st.file_uploader(
+            "인구구조 CSV",
+            type="csv"
+        )
+
+    files = [
+        seoul,
+        busan,
+        gyeonggi,
+        sejong,
+        gangwon,
+        jeonnam
+    ]
+
+    library_list = []
+
+    for file in files:
+
+        if file:
+
+            _, df = load_library_csv(file)
+
+            df = preprocess_library(df)
+
+            library_list.append(df)
+
+    if len(library_list) > 0:
+
+        library_df = pd.concat(
+            library_list,
+            ignore_index=True
+        )
+
+    else:
+        library_df = None
+
+    population_df = None
+
+    if population:
+
+        _, population_df = load_population_csv(population)
+
+        population_df = preprocess_population(
+            population_df
+        )
+
+    with tab1:
+
+        if library_df is not None:
+
+            st.dataframe(library_df)
+
+            library_graph(library_df)
+
+    with tab2:
+
+        if population_df is not None:
+
+            st.dataframe(population_df)
+
+            population_graph(population_df)
+
+    with tab3:
+
+        if library_df is not None and population_df is not None:
+
+            region_df = library_df.groupby("지역").sum(
+                numeric_only=True
+            ).reset_index()
+
+            merged = pd.merge(
+                region_df,
+                population_df,
+                on="지역"
+            )
+
+            st.dataframe(merged)
+
+            merged_graph(merged)
+
+    with tab4:
+
+        if library_df is not None and population_df is not None:
+
+            region_df = library_df.groupby("지역").sum(
+                numeric_only=True
+            ).reset_index()
+
+            merged = pd.merge(
+                region_df,
+                population_df,
+                on="지역"
+            )
+
+            correlation_graph(merged)
+
+
+if __name__ == "__main__":
+    main()
